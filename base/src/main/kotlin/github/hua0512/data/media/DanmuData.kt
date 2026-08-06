@@ -56,6 +56,41 @@ sealed class DanmuDataWrapper {
     val content: String,
     val fontSize: Int,
     val serverTime: Long,
+    /**
+     * 以下為「公屏完整還原」用的擴充欄位，只有抖音會填，其他平台一律 null。
+     * 全部有預設值，因此不影響既有平台的建構呼叫。
+     *
+     * @property kind 訊息種類：chat / member / gift / like / social / emoji
+     * @property payGradeLevel 榮譽等級（PayGrade.level）
+     * @property fansClubLevel 粉絲團等級（FansClub.data.level）
+     * @property fansClubName 粉絲團名稱，抖音彈幕通常為空，需靠 anchorId 另查
+     * @property anchorId 粉絲團所屬主播 id，用來事後解析團名
+     * @property isAdmin 是否有房管勳章
+     * @property badges 徽章說明清單，取自 BadgeImageList[].content.alternativeText，以 | 分隔
+     * @property avatarUrl 頭像 URL
+     * @property giftId 禮物 id
+     * @property giftName 禮物名稱
+     * @property giftCount 禮物總數（total_count）
+     * @property giftComboCount 連擊數（combo_count）
+     * @property giftReceiver 收禮人暱稱（團播會送給特定主播）
+     * @property likeCount 本次點讚數
+     * @property memberCount 當前房間人數（加入直播間訊息附帶）
+     */
+    val kind: String? = null,
+    val payGradeLevel: Int? = null,
+    val fansClubLevel: Int? = null,
+    val fansClubName: String? = null,
+    val anchorId: Long? = null,
+    val isAdmin: Boolean? = null,
+    val badges: String? = null,
+    val avatarUrl: String? = null,
+    val giftId: Long? = null,
+    val giftName: String? = null,
+    val giftCount: Long? = null,
+    val giftComboCount: Long? = null,
+    val giftReceiver: String? = null,
+    val likeCount: Long? = null,
+    val memberCount: Long? = null,
   ) : DanmuDataWrapper()
 
 

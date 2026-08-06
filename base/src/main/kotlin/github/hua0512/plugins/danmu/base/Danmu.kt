@@ -402,13 +402,49 @@ abstract class Danmu(val app: App, val enablePing: Boolean = false) {
         // append tab
         append("\t")
         // append danmu content
-        append("""<d p="$time,1,25,$color,${danmu.serverTime},0,${danmu.uid},0" user="$sender">${content}</d>""")
+        append("""<d p="$time,1,25,$color,${danmu.serverTime},0,${danmu.uid},0" user="$sender"""")
+        // 擴充欄位：只有值存在時才寫出，維持與舊版 XML 的相容性
+        append(danmu.extraAttributes())
+        append(">").append(content).append("</d>")
         // append newline
         append("\n")
       }
     }
     write(xmlContent.toByteArray())
     flush()
+  }
+
+  /**
+   * 把「公屏完整還原」用的擴充欄位組成 XML 屬性字串。
+   *
+   * 只輸出有值的欄位，因此舊的分析工具（只讀 p 與 user）完全不受影響。
+   *
+   * t=種類 chat/member/gift/like/social/emoji，lv=榮譽等級，
+   * fc/fclv/aid=粉絲團名/等級/主播id，adm=房管，bg=徽章說明清單(| 分隔)，
+   * av=頭像，gid/gn/gc/gcb/gto=禮物id/名稱/總數/連擊/收禮人，lc=點讚數，mc=房間人數
+   */
+  private fun DanmuData.extraAttributes(): String = buildString {
+    fun attr(name: String, value: Any?) {
+      if (value == null) return
+      val s = value.toString()
+      if (s.isEmpty() || s == "0" || s == "false") return
+      append(' ').append(name).append("=\"").append(s.sanitizeToXmlString()).append('"')
+    }
+    attr("t", kind)
+    attr("lv", payGradeLevel)
+    attr("fc", fansClubName)
+    attr("fclv", fansClubLevel)
+    attr("aid", anchorId)
+    attr("adm", if (isAdmin == true) "1" else null)
+    attr("bg", badges)
+    attr("av", avatarUrl)
+    attr("gid", giftId)
+    attr("gn", giftName)
+    attr("gc", giftCount)
+    attr("gcb", giftComboCount)
+    attr("gto", giftReceiver)
+    attr("lc", likeCount)
+    attr("mc", memberCount)
   }
 
   /**

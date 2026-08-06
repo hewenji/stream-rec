@@ -33,7 +33,17 @@ package github.hua0512.plugins.douyin.danmu
 enum class DouyinWebcastMessages(val className: String) {
 
   CHAT_MESSAGE("WebcastChatMessage"),
-  CONTROL_MESSAGE("WebcastControlMessage");
+  CONTROL_MESSAGE("WebcastControlMessage"),
+
+  // ---- 公屏完整還原用：實測某團播房 80 則訊息的類型分佈為
+  // MemberMessage 17、ChatMessage 15、InRoomBanner 11、RoomUserSeq 8、
+  // CommonCardArea 7、RoomStats 6、RoomRank 3 ... 其中會出現在公屏的是以下幾種
+  MEMBER_MESSAGE("WebcastMemberMessage"),        // XXX 加入了直播間
+  GIFT_MESSAGE("WebcastGiftMessage"),            // 送出禮物
+  LIKE_MESSAGE("WebcastLikeMessage"),            // 為主播點讚
+  CHAT_LIKE_MESSAGE("WebcastChatLikeMessage"),   // 公屏版點讚（payload 同 LikeMessage）
+  SOCIAL_MESSAGE("WebcastSocialMessage"),        // 關注 / 分享
+  EMOJI_CHAT_MESSAGE("WebcastEmojiChatMessage"); // 大表情訊息
 
   companion object {
     fun fromClassName(className: String): DouyinWebcastMessages? {
