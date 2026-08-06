@@ -43,7 +43,8 @@ enum class DouyinWebcastMessages(val className: String) {
   LIKE_MESSAGE("WebcastLikeMessage"),            // 為主播點讚
   CHAT_LIKE_MESSAGE("WebcastChatLikeMessage"),   // 公屏版點讚（payload 同 LikeMessage）
   SOCIAL_MESSAGE("WebcastSocialMessage"),        // 關注 / 分享
-  EMOJI_CHAT_MESSAGE("WebcastEmojiChatMessage"); // 大表情訊息
+  EMOJI_CHAT_MESSAGE("WebcastEmojiChatMessage"), // 大表情訊息
+  FANSCLUB_MESSAGE("WebcastFansclubMessage");    // 加入粉絲團 / 燈牌升級
 
   companion object {
     fun fromClassName(className: String): DouyinWebcastMessages? {

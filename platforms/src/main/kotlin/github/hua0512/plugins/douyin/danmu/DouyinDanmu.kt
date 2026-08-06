@@ -43,6 +43,7 @@ import github.hua0512.plugins.douyin.danmu.DouyinWebcastMessages.CHAT_LIKE_MESSA
 import github.hua0512.plugins.douyin.danmu.DouyinWebcastMessages.CHAT_MESSAGE
 import github.hua0512.plugins.douyin.danmu.DouyinWebcastMessages.CONTROL_MESSAGE
 import github.hua0512.plugins.douyin.danmu.DouyinWebcastMessages.EMOJI_CHAT_MESSAGE
+import github.hua0512.plugins.douyin.danmu.DouyinWebcastMessages.FANSCLUB_MESSAGE
 import github.hua0512.plugins.douyin.danmu.DouyinWebcastMessages.GIFT_MESSAGE
 import github.hua0512.plugins.douyin.danmu.DouyinWebcastMessages.LIKE_MESSAGE
 import github.hua0512.plugins.douyin.danmu.DouyinWebcastMessages.MEMBER_MESSAGE
@@ -305,7 +306,22 @@ open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
           ).withUser(e.user, "emoji")
         }
 
-        CONTROL_MESSAGE -> {
+        FANSCLUB_MESSAGE -> {
+        // dy.proto 沒有這個訊息的定義，改用低階欄位掃描解析，見 DouyinFansclubDecoder
+        val fc = DouyinFansclubDecoder.decode(msg.payload)
+        val u = fc.user
+        if (u == null) null
+        else DanmuData(
+          u.id,
+          u.nickNameBytes.toStringUtf8(),
+          -1,
+          fc.content ?: if (fc.type == 2) "粉丝团升级了" else "加入了粉丝团",
+          0,
+          eventTimeMs(fc.createTime ?: 0L),
+        ).withUser(u, "fansclub")
+      }
+
+      CONTROL_MESSAGE -> {
           val controlMessage = Dy.ControlMessage.parseFrom(msg.payload)
           val status = controlMessage.status
           if (status == 3) {

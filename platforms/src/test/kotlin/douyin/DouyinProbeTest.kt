@@ -22,7 +22,12 @@ class DouyinProbeTest : BaseTest<DouyinCombinedApiExtractor>({
 
   test("probe") {
     val probeOut = System.getenv("DOUYIN_DANMU_PROBE")
-    require(!probeOut.isNullOrBlank()) { "請先設定環境變數 DOUYIN_DANMU_PROBE=輸出檔路徑" }
+    if (probeOut.isNullOrBlank() || System.getenv("DOUYIN_PROBE_URL").isNullOrBlank()) {
+      // 這是需要連上正在開播的直播間的偵察工具，不是常規單元測試。
+      // 沒設環境變數就直接跳過，不要讓整批測試失敗。
+      println("跳過 probe：未設定 DOUYIN_PROBE_URL / DOUYIN_DANMU_PROBE")
+      return@test
+    }
 
     // cookie 建議放檔案，避免出現在指令列或環境變數被別的程序看到
     val cookies = System.getenv("DOUYIN_PROBE_COOKIES_FILE")
@@ -73,9 +78,11 @@ class DouyinProbeTest : BaseTest<DouyinCombinedApiExtractor>({
 
 }) {
 
+  // 不可以在這裡 error()：kotest 會先實例化 spec，沒設環境變數時會變成
+  // SpecInstantiationException 讓整批測試爆掉。改成給佔位值，由測試本體檢查。
   override val testUrl: String =
     System.getenv("DOUYIN_PROBE_URL")?.takeIf { it.isNotBlank() }
-      ?: error("請先設定環境變數 DOUYIN_PROBE_URL=https://live.douyin.com/房號")
+      ?: "https://live.douyin.com/0"
 
   override fun createExtractor(url: String) = DouyinCombinedApiExtractor(app.client, app.json, url)
 }
