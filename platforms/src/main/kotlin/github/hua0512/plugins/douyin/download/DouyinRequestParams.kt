@@ -47,7 +47,7 @@ internal class DouyinRequestParams {
     internal const val UPDATE_VERSION_CODE_KEY = "update_version_code"
 
 
-    internal const val SDK_VERSION = "1.0.14-beta.0"
+    internal const val SDK_VERSION = "1.0.15"
 
     internal const val ROOM_ID_KEY = "room_id"
     internal const val WEB_RID_KEY = "web_rid"
@@ -90,6 +90,8 @@ internal class DouyinRequestParams {
       "did_rule" to "3",
       "identity" to "audience",
       "endpoint" to "live_pc",
+      "support_wrds" to "1",
+      "im_path" to "/webcast/im/fetch/",
       "need_persist_msg_count" to "15",
       "heartbeatDuration" to "0",
     )
