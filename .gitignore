@@ -43,3 +43,7 @@ out/
 *.env
 .env*.local
 TODO.md
+
+# Local Douyin login cookies (never commit)
+douyin_cookies.txt
+**/douyin_cookies.txt
