@@ -97,6 +97,7 @@ sealed class DownloadConfig : DownloadConfigDTO {
   data class DouyinDownloadConfig(
     override val quality: DouyinQuality? = null,
     override val sourceFormat: VideoFormat? = null,
+    override val cookiesFile: String? = null,
   ) : DownloadConfig(), DouyinConfigDTO {
 
     override fun equals(other: Any?): Boolean {

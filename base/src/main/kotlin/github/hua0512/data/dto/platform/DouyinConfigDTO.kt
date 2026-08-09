@@ -38,4 +38,5 @@ interface DouyinConfigDTO {
   val quality: DouyinQuality?
   val sourceFormat: VideoFormat?
   val cookies: String?
+  val cookiesFile: String?
 }

@@ -44,6 +44,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class DouyinConfigGlobal(
   override val cookies: String? = null,
+  override val cookiesFile: String? = null,
   override val quality: DouyinQuality = DouyinQuality.origin,
   override val partedDownloadRetry: Int? = 0,
   override val sourceFormat: VideoFormat? = VideoFormat.flv,
