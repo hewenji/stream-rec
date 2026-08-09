@@ -245,7 +245,9 @@ open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
           val g = Dy.GiftMessage.parseFrom(msg.payload)
           // 連擊禮物在連擊期間會持續推送同一筆，只有最後一則帶 repeatEnd = 1。
           // 因此連擊禮物只在結束時記一筆（帶最終數量），非連擊禮物則每則都算一次。
-          if (g.gift.combo && g.repeatEnd != 1) {
+          val dropCombo = g.gift.combo && g.repeatEnd != 1
+          if (DouyinDanmuProbe.enabled) DouyinDanmuProbe.gift(g, kept = !dropCombo)
+          if (dropCombo) {
             null
           } else {
             val giftName = g.gift.name.ifEmpty { g.gift.describe }

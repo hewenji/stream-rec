@@ -161,15 +161,65 @@ object DouyinDanmuProbe {
 
   // ---- 統計這個直播間到底推送了哪些訊息類型（表情訊息是否另有 method）----
   private val methodCounts = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
+  private val giftSeen = AtomicInteger(0)
+  private val giftKept = AtomicInteger(0)
+  private val giftDroppedCombo = AtomicInteger(0)
 
   fun method(name: String) {
     val path = outPath ?: return
     methodCounts.computeIfAbsent(name) { java.util.concurrent.atomic.AtomicInteger(0) }.incrementAndGet()
     if (methodCounts.values.sumOf { it.get() } % 40 != 0) return
-    val text = methodCounts.entries.sortedByDescending { it.value.get() }
-      .joinToString("\n") { "  " + it.key + " = " + it.value.get() }
+    flushMethodCounts(path)
+  }
+
+  /** 記錄禮物是否被連擊過濾丟掉；前幾筆寫詳細欄位方便對照 proto。 */
+  fun gift(msg: Dy.GiftMessage, kept: Boolean) {
+    val path = outPath ?: return
+    giftSeen.incrementAndGet()
+    if (kept) giftKept.incrementAndGet() else giftDroppedCombo.incrementAndGet()
+    val n = giftSeen.get()
+    if (n <= limit) {
+      val gift = msg.gift
+      val text = buildString {
+        append("========== GIFT #").append(n)
+          .append(if (kept) " KEPT" else " DROPPED_COMBO").append(" ==========\n")
+        append("user      : ").append(msg.user.nickNameBytes.toStringUtf8()).append('\n')
+        append("toUser    : ").append(msg.toUser.nickNameBytes.toStringUtf8()).append('\n')
+        append("giftId    : ").append(msg.giftId).append('\n')
+        append("gift.name : ").append(gift.name).append('\n')
+        append("gift.desc : ").append(gift.describe).append('\n')
+        append("gift.combo: ").append(gift.combo).append('\n')
+        append("repeatEnd : ").append(msg.repeatEnd).append('\n')
+        append("repeatCnt : ").append(msg.repeatCount).append('\n')
+        append("comboCnt  : ").append(msg.comboCount).append('\n')
+        append("totalCnt  : ").append(msg.totalCount).append('\n')
+        append("groupCnt  : ").append(msg.groupCount).append('\n')
+        append("sendTime  : ").append(msg.sendTime).append('\n')
+        append('\n')
+      }
+      synchronized(lock) {
+        runCatching { File(path).appendText(text) }
+      }
+    }
+    flushMethodCounts(path)
+  }
+
+  fun flushMethodCounts() {
+    val path = outPath ?: return
+    flushMethodCounts(path)
+  }
+
+  private fun flushMethodCounts(path: String) {
+    val text = buildString {
+      append("METHOD COUNTS\n")
+      methodCounts.entries.sortedByDescending { it.value.get() }
+        .forEach { append("  ").append(it.key).append(" = ").append(it.value.get()).append('\n') }
+      append("GIFT keep/drop: seen=").append(giftSeen.get())
+        .append(" kept=").append(giftKept.get())
+        .append(" droppedCombo=").append(giftDroppedCombo.get()).append('\n')
+    }
     synchronized(lock) {
-      runCatching { java.io.File(path + ".methods.txt").writeText("METHOD COUNTS\n" + text + "\n") }
+      runCatching { File(path + ".methods.txt").writeText(text) }
     }
   }
 }

@@ -73,6 +73,7 @@ class DouyinProbeTest : BaseTest<DouyinCombinedApiExtractor>({
     ok shouldBe true
 
     withTimeoutOrNull(timeoutSec * 1000) { danmu.fetchDanmu() }
+    github.hua0512.plugins.douyin.danmu.DouyinDanmuProbe.flushMethodCounts()
     println("probe 完成，輸出：" + probeOut)
   }
 
