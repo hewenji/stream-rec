@@ -46,6 +46,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.io.File
 import kotlin.random.Random
 
 /**
@@ -182,4 +183,44 @@ internal fun getValidUserId() = userUniqueId.value ?: run {
   }
   // Return the current value of USER_UNIQUE_ID, which may be set by another thread
   userUniqueId.value ?: newUserId
+}
+
+internal fun readDouyinCookiesFile(path: String): String? {
+  val file = File(path)
+  if (!file.isFile || !file.canRead()) {
+    logger.error("Douyin cookies file missing or unreadable: {}", path)
+    return null
+  }
+  return runCatching {
+    file.readLines()
+      .map { it.trim() }
+      .filter { it.isNotEmpty() && !it.startsWith("#") }
+      .joinToString(" ")
+      .trim()
+      .ifEmpty { null }
+  }.onFailure {
+    logger.error("Failed to read Douyin cookies file: {}", path, it)
+  }.getOrNull()
+}
+
+internal fun resolveDouyinCookiesRaw(
+  streamerCookies: String?,
+  globalCookies: String?,
+  cookiesFile: String?,
+  envCookiesFile: String? = System.getenv("DOUYIN_COOKIES_FILE"),
+): String {
+  streamerCookies?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+  globalCookies?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+  cookiesFile?.trim()?.takeIf { it.isNotEmpty() }?.let { path ->
+    readDouyinCookiesFile(path)?.let { return it }
+  }
+  envCookiesFile?.trim()?.takeIf { it.isNotEmpty() }?.let { path ->
+    readDouyinCookiesFile(path)?.let { return it }
+  }
+  return ""
+}
+
+internal fun cookieHeaderHasSessionId(cookies: String): Boolean {
+  if (cookies.isBlank()) return false
+  return parseClientCookiesHeader(cookies).keys.any { it.equals("sessionid", ignoreCase = true) }
 }
