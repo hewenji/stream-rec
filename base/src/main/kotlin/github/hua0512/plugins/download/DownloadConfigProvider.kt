@@ -34,6 +34,7 @@ import github.hua0512.data.dto.platform.*
 import github.hua0512.data.media.VideoFormat
 import github.hua0512.data.stream.StreamingPlatform
 import github.hua0512.data.stream.StreamingPlatform.*
+import github.hua0512.plugins.douyin.download.resolveDouyinCookiesRaw
 import github.hua0512.utils.nonEmptyOrNull
 
 /**
@@ -50,11 +51,21 @@ fun <T : DownloadConfig> T.fillDownloadConfig(
 ): T {
   val streamerConfig = this
 
-  val newCookies = templateConfig?.cookies.orEmpty()
+  val baseCookies = templateConfig?.cookies.orEmpty()
     .ifEmpty {
       streamerConfig.cookies.orEmpty()
-        .ifEmpty { platform.globalConfig(appConfig).cookies }
+        .ifEmpty { platform.globalConfig(appConfig).cookies.orEmpty() }
     }
+  val newCookies = when {
+    baseCookies.isNotEmpty() -> baseCookies
+    platform == DOUYIN -> resolveDouyinCookiesRaw(
+      streamerCookies = null,
+      globalCookies = null,
+      cookiesFile = appConfig.douyinConfig.cookiesFile,
+    ).ifEmpty { null }
+
+    else -> null
+  }
   val newDanmu = templateConfig?.danmu ?: streamerConfig.danmu ?: appConfig.danmu
   val newMaxBitRate = templateConfig?.maxBitRate ?: streamerConfig.maxBitRate
   val newOutputFolder = templateConfig?.outputFolder?.nonEmptyOrNull() ?: streamerConfig.outputFolder?.nonEmptyOrNull()

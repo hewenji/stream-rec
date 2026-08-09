@@ -108,6 +108,7 @@ sealed class DownloadConfig : DownloadConfigDTO {
 
       if (quality != other.quality) return false
       if (sourceFormat != other.sourceFormat) return false
+      if (cookiesFile != other.cookiesFile) return false
       return super.equals(other)
     }
   }

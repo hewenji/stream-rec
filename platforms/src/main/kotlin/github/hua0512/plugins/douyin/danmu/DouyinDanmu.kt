@@ -53,7 +53,6 @@ import github.hua0512.plugins.douyin.download.DouyinRequestParams.Companion.ROOM
 import github.hua0512.plugins.douyin.download.DouyinRequestParams.Companion.SIGNATURE_KEY
 import github.hua0512.plugins.douyin.download.DouyinRequestParams.Companion.USER_UNIQUE_KEY
 import github.hua0512.utils.decompressGzip
-import github.hua0512.utils.nonEmptyOrNull
 import github.hua0512.utils.withIOContext
 import io.ktor.http.*
 import io.ktor.websocket.*
@@ -96,13 +95,24 @@ open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
 
     val config: DouyinDownloadConfig = streamer.downloadConfig as DouyinDownloadConfig
 
-    var cookies = (config.cookies?.nonEmptyOrNull() ?: app.config.douyinConfig.cookies)?.nonEmptyOrNull() ?: ""
+    var cookies = resolveDouyinCookiesRaw(
+      streamerCookies = config.cookies,
+      globalCookies = app.config.douyinConfig.cookies,
+      cookiesFile = app.config.douyinConfig.cookiesFile,
+    )
 
     try {
       cookies = populateDouyinCookieMissedParams(cookies, app.client)
     } catch (e: Exception) {
       logger.error("{} Failed to populate douyin cookie missed params", webRid, e)
       return false
+    }
+
+    if (!cookieHeaderHasSessionId(cookies)) {
+      logger.warn(
+        "{} Douyin cookies have no sessionid; WebcastGiftMessage may be missing. Set douyinConfig.cookiesFile or DOUYIN_COOKIES_FILE.",
+        webRid,
+      )
     }
 
     if (idStr.isEmpty()) {
