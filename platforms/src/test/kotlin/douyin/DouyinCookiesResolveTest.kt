@@ -66,6 +66,20 @@ class DouyinCookiesResolveTest : FunSpec({
     readDouyinCookiesFile(f.absolutePath) shouldBe "sessionid=abc; ttwid=xyz"
   }
 
+  test("讀取多行且未帶分號的 cookie 時以分號分隔") {
+    val f = File.createTempFile("dy-c", ".txt").apply {
+      writeText(
+        """
+        sessionid=abc
+        ttwid=xyz
+        """.trimIndent()
+      )
+      deleteOnExit()
+    }
+
+    readDouyinCookiesFile(f.absolutePath) shouldBe "sessionid=abc; ttwid=xyz"
+  }
+
   test("缺檔回傳 null，resolve 落到下一層") {
     readDouyinCookiesFile("C:\\no\\such\\douyin_cookies.txt") shouldBe null
     resolveDouyinCookiesRaw(

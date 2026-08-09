@@ -22,4 +22,26 @@ class DouyinDownloadConfigProviderTest : FunSpec({
 
     config.cookies shouldBe "sessionid=from-file"
   }
+
+  test("主播下載設定的 cookiesFile 優先於全域檔案") {
+    val streamerCookiesFile = File.createTempFile("douyin-streamer-cookies", ".txt").apply {
+      writeText("sessionid=from-streamer-file")
+      deleteOnExit()
+    }
+    val globalCookiesFile = File.createTempFile("douyin-global-cookies", ".txt").apply {
+      writeText("sessionid=from-global-file")
+      deleteOnExit()
+    }
+
+    val config = DownloadConfig.DouyinDownloadConfig(
+      cookiesFile = streamerCookiesFile.absolutePath,
+    ).fillDownloadConfig(
+      platform = StreamingPlatform.DOUYIN,
+      templateConfig = null,
+      appConfig = AppConfig(douyinConfig = DouyinConfigGlobal(cookiesFile = globalCookiesFile.absolutePath)),
+    )
+
+    config.cookies shouldBe "sessionid=from-streamer-file"
+    config.cookiesFile shouldBe streamerCookiesFile.absolutePath
+  }
 })

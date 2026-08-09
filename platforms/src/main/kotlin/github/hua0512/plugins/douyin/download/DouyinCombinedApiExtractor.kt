@@ -64,7 +64,7 @@ class DouyinCombinedApiExtractor(http: HttpClient, json: Json, override val url:
       put("result", isLive.toString())
       put("webRid", webRid)
       put("idStr", idStr)
-      put("cookies", cookies)
+      put("cookieKeys", parseCookies(cookies).keys.sorted().joinToString(","))
     }
 
     logger.debug("{} pc api failed, falling back to mobile api: {}", url, debugInfo)

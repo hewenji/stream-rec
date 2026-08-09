@@ -61,7 +61,8 @@ fun <T : DownloadConfig> T.fillDownloadConfig(
     platform == DOUYIN -> resolveDouyinCookiesRaw(
       streamerCookies = null,
       globalCookies = null,
-      cookiesFile = appConfig.douyinConfig.cookiesFile,
+      cookiesFile = (streamerConfig as DouyinConfigDTO).cookiesFile
+        ?: appConfig.douyinConfig.cookiesFile,
     ).ifEmpty { null }
 
     else -> null
@@ -87,6 +88,7 @@ fun <T : DownloadConfig> T.fillDownloadConfig(
     DOUYIN -> DownloadConfig.DouyinDownloadConfig(
       quality = (streamerConfig as DouyinConfigDTO).quality ?: appConfig.douyinConfig.quality,
       sourceFormat = streamerConfig.sourceFormat ?: appConfig.douyinConfig.sourceFormat,
+      cookiesFile = streamerConfig.cookiesFile ?: appConfig.douyinConfig.cookiesFile,
     )
 
     DOUYU -> DownloadConfig.DouyuDownloadConfig(

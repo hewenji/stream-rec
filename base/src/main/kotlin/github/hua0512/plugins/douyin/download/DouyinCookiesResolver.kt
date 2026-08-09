@@ -24,7 +24,7 @@ fun readDouyinCookiesFile(path: String): String? {
     file.readLines()
       .map { it.trim() }
       .filter { it.isNotEmpty() && !it.startsWith("#") }
-      .joinToString(" ")
+      .joinToString("; ") { it.trimEnd(';').trim() }
       .trim()
       .ifEmpty { null }
   }.onFailure {
