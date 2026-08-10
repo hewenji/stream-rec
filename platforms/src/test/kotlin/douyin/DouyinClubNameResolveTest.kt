@@ -62,4 +62,49 @@ class DouyinClubNameResolveTest : FunSpec({
     a.resolveClubName(7L, "甲團") shouldBe "甲團"
     b.resolveClubName(7L, null) shouldBe null
   }
+
+  test("從加入粉絲團訊息抓出團名") {
+    val d = newDanmu()
+    d.extractClubName("恭喜 西瓜肠Zz 成为第1584214名龙浩天成员") shouldBe "龙浩天"
+    d.extractClubName("恭喜 不张扬（爷很靓） 成为第1584215名龙浩天成员") shouldBe "龙浩天"
+  }
+
+  test("升級訊息與其他句型不當成團名") {
+    val d = newDanmu()
+    // 這串被抖音自己截斷，且與 clubName 不同，不能用
+    d.extractClubName("娟儿 刚刚升级至【龙浩天🐲(9号...】粉丝团 Lv6") shouldBe null
+    d.extractClubName("XXX 加入了粉丝团") shouldBe null
+    d.extractClubName(null) shouldBe null
+    d.extractClubName("") shouldBe null
+  }
+
+  test("加入訊息抓到的團名可餵給查表，補齊整場") {
+    val d = newDanmu()
+    val anchor = 98279941470L
+    d.resolveClubName(anchor, null) shouldBe null
+    d.extractClubName("恭喜 某人 成为第1名龙浩天成员")?.let { d.resolveClubName(anchor, it) }
+    d.resolveClubName(anchor, null) shouldBe "龙浩天"
+  }
+
+  test("禮物排行榜一直跳卻零禮物，才判定登入態可能過期") {
+    val d = newDanmu()
+    // 未達門檻不算
+    repeat(19) { d.trackGiftHealth("WebcastGiftSortMessage") }
+    d.giftExpirySuspected() shouldBe false
+    d.trackGiftHealth("WebcastGiftSortMessage")
+    d.giftExpirySuspected() shouldBe true
+  }
+
+  test("收得到禮物就不判定過期") {
+    val d = newDanmu()
+    d.trackGiftHealth("WebcastGiftMessage")
+    repeat(50) { d.trackGiftHealth("WebcastGiftSortMessage") }
+    d.giftExpirySuspected() shouldBe false
+  }
+
+  test("無關訊息類型不影響判定") {
+    val d = newDanmu()
+    repeat(50) { d.trackGiftHealth("WebcastChatMessage") }
+    d.giftExpirySuspected() shouldBe false
+  }
 })

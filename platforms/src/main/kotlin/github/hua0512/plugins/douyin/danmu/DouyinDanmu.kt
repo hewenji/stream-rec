@@ -57,6 +57,8 @@ import github.hua0512.utils.withIOContext
 import io.ktor.http.*
 import io.ktor.websocket.*
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Instant
 
 
@@ -68,6 +70,9 @@ import kotlin.time.Instant
 open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
 
   companion object {
+    /** 禮物排行榜更新幾次後仍零禮物就提醒。實測失效時 4 分鐘可累積 125 次 */
+    private const val GIFT_EXPIRY_THRESHOLD = 20
+
     init {
       // load webmssdk js
       loadWebmssdk()
@@ -194,6 +199,7 @@ open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
     return msgList.mapNotNull { msg ->
       logger.trace("msg: {}", msg)
       if (DouyinDanmuProbe.enabled) DouyinDanmuProbe.method(msg.method)
+      trackGiftHealth(msg.method)
       val msgType = DouyinWebcastMessages.fromClassName(msg.method)
       // 逐則隔離解析錯誤：一個 frame 內含多則訊息，若任何一則 parseFrom 拋例外，
       // 上游的 catch 會把「整個 frame」丟掉，連同批的聊天訊息一起消失。
@@ -323,6 +329,11 @@ open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
         // dy.proto 沒有這個訊息的定義，改用低階欄位掃描解析，見 DouyinFansclubDecoder
         val fc = DouyinFansclubDecoder.decode(msg.payload)
         val u = fc.user
+        // 加入訊息「恭喜 XXX 成为第1584214名龙浩天成员」帶團名，實測與 protobuf
+        // clubName 一致，拿來餵查表就能替整場補齊（多數訊息的 clubName 是空的）
+        extractClubName(fc.content)?.let {
+          resolveClubName(u?.fansClub?.data?.anchorId?.takeIf { id -> id > 0 }, it)
+        }
         if (u == null) null
         else DanmuData(
           u.id,
@@ -382,6 +393,59 @@ open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
    * 用 ConcurrentHashMap：decodeDanmu 會在多個 dispatcher worker 上並行解析。
    */
   private val clubNames = ConcurrentHashMap<Long, String>()
+
+  /**
+   * 「加入粉絲團」訊息裡的團名。實測句型：`恭喜 西瓜肠Zz 成为第1584214名龙浩天成员`，
+   * 抓出來的「龙浩天」與同房 protobuf `clubName` 的值一致，可信。
+   *
+   * 升級訊息的 `刚刚升级至【龙浩天🐲(9号...】粉丝团 Lv6` 不用：那串會被抖音自己截斷，
+   * 且與 clubName 不是同一個字串。
+   */
+  private val joinClubRegex = Regex("成为第\\d+名(.+?)成员")
+
+  /** 粉絲團登入態健康度：禮物排行榜在跳但收不到禮物，代表 Cookie 過期 */
+  private val giftSortSeen = AtomicInteger(0)
+  private val giftSeen = AtomicInteger(0)
+  private val giftExpiryWarned = AtomicBoolean(false)
+
+  internal fun extractClubName(content: String?): String? =
+    content?.let { joinClubRegex.find(it)?.groupValues?.getOrNull(1)?.trim() }
+      ?.takeIf { it.isNotEmpty() }
+
+  /**
+   * 抓「Cookie 過期」這個無聲失效：連線正常、聊天照收、也不會缺 sessionid，
+   * 只有 `WebcastGiftMessage` 默默變 0。實測 30 小時前的 Cookie 就已失效。
+   *
+   * 判準是 `WebcastGiftSortMessage`（禮物排行榜）：它在更新代表房間有禮物活動，
+   * 此時若一則禮物都收不到，就不是「沒人送禮」而是登入態掉了。
+   * 只是警告不是錯誤——冷門房間仍可能兩者皆低，所以措辭保留餘地，且整場只提醒一次。
+   */
+  /** 目前是否研判登入態可能已過期：排行榜持續更新卻一則禮物都沒有 */
+  internal fun giftExpirySuspected(): Boolean =
+    giftSeen.get() == 0 && giftSortSeen.get() >= GIFT_EXPIRY_THRESHOLD
+
+  internal fun trackGiftHealth(method: String) {
+    when (method) {
+      "WebcastGiftMessage" -> {
+        giftSeen.incrementAndGet()
+        return
+      }
+
+      "WebcastGiftSortMessage" -> giftSortSeen.incrementAndGet()
+      else -> return
+    }
+    if (giftSeen.get() == 0 &&
+      giftSortSeen.get() >= GIFT_EXPIRY_THRESHOLD &&
+      giftExpiryWarned.compareAndSet(false, true)
+    ) {
+      logger.warn(
+        "{} 禮物排行榜已更新 {} 次卻收不到任何禮物訊息，抖音登入 Cookie 可能已過期。" +
+          "請重新匯出含 sessionid 的 Cookie（douyinConfig.cookies / cookiesFile / DOUYIN_COOKIES_FILE）。",
+        idStr,
+        giftSortSeen.get(),
+      )
+    }
+  }
 
   /**
    * 有團名就記錄並回傳；沒有就用 anchorId 查先前記下的團名，查不到回傳 null。
