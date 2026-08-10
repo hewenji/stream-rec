@@ -28,7 +28,7 @@ RUN apt-get update -y && \
     /opt/venv/bin/pip install --no-cache-dir streamlink && \
     # Install streamlink twitch plugin
     mkdir -p /root/.local/share/streamlink/plugins && \
-    curl -L -o /root/.local/share/streamlink/plugins/twitch.py \
+    curl -fL -o /root/.local/share/streamlink/plugins/twitch.py \
         'https://github.com/2bc4/streamlink-ttvlol/releases/latest/download/twitch.py' && \
     # Install strev with architecture check
     ARCH=$(uname -m) && \
@@ -39,8 +39,9 @@ RUN apt-get update -y && \
     else \
         echo "Unsupported architecture: $ARCH" && exit 1; \
     fi && \
-    curl -L $URL -o /usr/local/bin/strev && \
+    curl -fL "$URL" -o /usr/local/bin/strev && \
     chmod +x /usr/local/bin/strev && \
+    /usr/local/bin/strev --version && \
     # Clean up to reduce image size
     apt-get clean && \
     rm -rf /tmp/* /var/lib/apt/lists/* /var/tmp/* /var/log/* /usr/share/man /usr/share/doc
