@@ -56,6 +56,7 @@ import github.hua0512.utils.decompressGzip
 import github.hua0512.utils.withIOContext
 import io.ktor.http.*
 import io.ktor.websocket.*
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Instant
 
 
@@ -362,10 +363,38 @@ open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
    * 實測（20 則樣本，命中率 20/20）：
    * - `PayGrade.level` 就是榮譽等級，對應素材 `new_user_grade_level_v1_<level>.png`
    * - `FansClub.data.level` 是粉絲團等級，對應 `fansclub_level_v6_<level>.png`；
-   *   但 `clubName` 一律為空，團名要靠 `anchorId` 事後另查，所以這裡把 anchorId 一併寫出
+   *   但 `clubName` 多數為空（實測 496 則帶燈牌只有 2 則有團名），靠 [resolveClubName]
+   *   依 nchorId 在同場錄影內查表補齊，並一併把 anchorId 寫出
    * - 房管與其他勳章都在 `BadgeImageList`，靠 `content.alternativeText`
    *   （如「房管勋章」「荣誉等级42级勋章」）判斷，比用檔名猜可靠
    */
+  /**
+   * anchorId -> 粉絲團名稱。抖音只在少數訊息填 `FansClub.data.clubName`
+   * （實測某場 496 則帶燈牌的訊息裡只有 2 則有團名），但每則都帶 `anchorId`。
+   *
+   * 團名是「每位主播一個」，所以第一次看到團名就以 anchorId 為鍵記進表裡，
+   * 之後同 anchorId 的訊息一律補上，寫進 XML 的就是完整資料，不必事後回填。
+   *
+   * 注意不能假設一個房間只有一位主播：單人直播間實測整場 670 則燈牌都是同一個
+   * anchorId，但**團播**房間會同時出現多位主播的燈牌（實測某場 400 則有 7 個
+   * anchorId）。以 anchorId 為鍵就能各自對應，不會把甲主播的團名套到乙主播的粉絲身上。
+   *
+   * 用 ConcurrentHashMap：decodeDanmu 會在多個 dispatcher worker 上並行解析。
+   */
+  private val clubNames = ConcurrentHashMap<Long, String>()
+
+  /**
+   * 有團名就記錄並回傳；沒有就用 anchorId 查先前記下的團名，查不到回傳 null。
+   */
+  internal fun resolveClubName(anchorId: Long?, clubName: String?): String? {
+    val name = clubName?.takeIf { it.isNotEmpty() }
+    if (anchorId == null || anchorId <= 0L) return name
+    if (name != null) {
+      clubNames.putIfAbsent(anchorId, name)
+      return name
+    }
+    return clubNames[anchorId]
+  }
   private fun DanmuData.withUser(user: Dy.User, kind: String): DanmuData {
     val fansClub = user.fansClub.data
     val badgeTexts = user.badgeImageListList.mapNotNull { it.content?.alternativeText?.takeIf(String::isNotEmpty) }
@@ -373,7 +402,7 @@ open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
       kind = kind,
       payGradeLevel = user.payGrade.level.toInt().takeIf { it > 0 },
       fansClubLevel = fansClub.level.takeIf { it > 0 },
-      fansClubName = fansClub.clubName.takeIf { it.isNotEmpty() },
+      fansClubName = resolveClubName(fansClub.anchorId.takeIf { it > 0 }, fansClub.clubName),
       anchorId = fansClub.anchorId.takeIf { it > 0 },
       isAdmin = badgeTexts.any { it.contains("房管") }.takeIf { it },
       badges = badgeTexts.takeIf { it.isNotEmpty() }?.joinToString("|"),
