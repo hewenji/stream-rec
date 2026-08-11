@@ -8,40 +8,62 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import java.io.File
 
+/**
+ * 抖音登入態一律以主播為單位：一個帳號無法多處同時登入，
+ * 全域後備會讓所有主播共用同一組 sessionid，併發錄製時互踢。
+ */
 class DouyinDownloadConfigProviderTest : FunSpec({
-  test("抖音設定沒有字串 cookies 時讀取 cookiesFile") {
-    val cookiesFile = File.createTempFile("douyin-cookies", ".txt").apply {
-      writeText("sessionid=from-file")
-      deleteOnExit()
-    }
-    val config = DownloadConfig.DouyinDownloadConfig().fillDownloadConfig(
-      platform = StreamingPlatform.DOUYIN,
-      templateConfig = null,
-      appConfig = AppConfig(douyinConfig = DouyinConfigGlobal(cookiesFile = cookiesFile.absolutePath)),
-    )
 
-    config.cookies shouldBe "sessionid=from-file"
+  fun tempCookies(name: String, content: String) = File.createTempFile(name, ".txt").apply {
+    writeText(content)
+    deleteOnExit()
   }
 
-  test("主播下載設定的 cookiesFile 優先於全域檔案") {
-    val streamerCookiesFile = File.createTempFile("douyin-streamer-cookies", ".txt").apply {
-      writeText("sessionid=from-streamer-file")
-      deleteOnExit()
-    }
-    val globalCookiesFile = File.createTempFile("douyin-global-cookies", ".txt").apply {
-      writeText("sessionid=from-global-file")
-      deleteOnExit()
-    }
-
+  test("讀取該主播自己的 cookiesFile") {
+    val cookiesFile = tempCookies("douyin-streamer", "sessionid=from-streamer-file")
     val config = DownloadConfig.DouyinDownloadConfig(
-      cookiesFile = streamerCookiesFile.absolutePath,
+      cookiesFile = cookiesFile.absolutePath,
     ).fillDownloadConfig(
+      platform = StreamingPlatform.DOUYIN,
+      templateConfig = null,
+      appConfig = AppConfig(),
+    )
+
+    config.cookies shouldBe "sessionid=from-streamer-file"
+    config.cookiesFile shouldBe cookiesFile.absolutePath
+  }
+
+  test("全域 cookiesFile 不再被套用，未設定的主播維持匿名") {
+    val globalCookiesFile = tempCookies("douyin-global", "sessionid=from-global-file")
+    val config = DownloadConfig.DouyinDownloadConfig().fillDownloadConfig(
       platform = StreamingPlatform.DOUYIN,
       templateConfig = null,
       appConfig = AppConfig(douyinConfig = DouyinConfigGlobal(cookiesFile = globalCookiesFile.absolutePath)),
     )
 
-    config.cookies shouldBe "sessionid=from-streamer-file"
-    config.cookiesFile shouldBe streamerCookiesFile.absolutePath
+    config.cookies shouldBe null
+  }
+
+  test("全域 cookies 字串同樣不再被套用") {
+    val config = DownloadConfig.DouyinDownloadConfig().fillDownloadConfig(
+      platform = StreamingPlatform.DOUYIN,
+      templateConfig = null,
+      appConfig = AppConfig(douyinConfig = DouyinConfigGlobal(cookies = "sessionid=from-global-string")),
+    )
+
+    config.cookies shouldBe null
+  }
+
+  test("主播自己的 cookies 字串優先於自己的 cookiesFile") {
+    val cookiesFile = tempCookies("douyin-streamer2", "sessionid=from-file")
+    val config = DownloadConfig.DouyinDownloadConfig(
+      cookiesFile = cookiesFile.absolutePath,
+    ).apply { cookies = "sessionid=from-string" }.fillDownloadConfig(
+      platform = StreamingPlatform.DOUYIN,
+      templateConfig = null,
+      appConfig = AppConfig(),
+    )
+
+    config.cookies shouldBe "sessionid=from-string"
   }
 })

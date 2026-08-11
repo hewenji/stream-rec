@@ -32,24 +32,34 @@ fun readDouyinCookiesFile(path: String): String? {
   }.getOrNull()
 }
 
+/**
+ * 解析某一位主播要用的抖音登入 Cookie。
+ *
+ * **刻意只看該主播自己的設定，沒有全域後備。** 一個抖音帳號無法多處同時登入：
+ * 若多位主播共用同一組 sessionid，併發錄製時會互相踢掉，結果是大家都收不到禮物。
+ * 全域 cookies／全域 cookiesFile／`DOUYIN_COOKIES_FILE` 這類後備會讓每位主播
+ * 都自動套上同一個帳號，正是造成互踢的原因，因此一律不提供。
+ *
+ * 沒有替這位主播設定 Cookie 就回傳空字串，以匿名連線——聊天、進場、點讚照常，
+ * 只有禮物收不到（抖音不對匿名連線下發 `WebcastGiftMessage`）。
+ */
 fun resolveDouyinCookiesRaw(
   streamerCookies: String?,
-  globalCookies: String?,
-  cookiesFile: String?,
-  envCookiesFile: String? = System.getenv("DOUYIN_COOKIES_FILE"),
+  streamerCookiesFile: String?,
 ): String {
   streamerCookies?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
-  globalCookies?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
-  cookiesFile?.trim()?.takeIf { it.isNotEmpty() }?.let { path ->
-    readDouyinCookiesFile(path)?.let { return it }
-  }
-  envCookiesFile?.trim()?.takeIf { it.isNotEmpty() }?.let { path ->
+  streamerCookiesFile?.trim()?.takeIf { it.isNotEmpty() }?.let { path ->
     readDouyinCookiesFile(path)?.let { return it }
   }
   return ""
 }
 
-fun cookieHeaderHasSessionId(cookies: String): Boolean {
-  if (cookies.isBlank()) return false
-  return parseClientCookiesHeader(cookies).keys.any { it.equals("sessionid", ignoreCase = true) }
+/** 取出 Cookie 裡的 sessionid 值，用來判斷是否有登入態、以及是否與別的主播撞帳號 */
+fun douyinSessionId(cookies: String): String? {
+  if (cookies.isBlank()) return null
+  return parseClientCookiesHeader(cookies).entries
+    .firstOrNull { it.key.equals("sessionid", ignoreCase = true) }
+    ?.value?.takeIf { it.isNotEmpty() }
 }
+
+fun cookieHeaderHasSessionId(cookies: String): Boolean = douyinSessionId(cookies) != null

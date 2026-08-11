@@ -73,6 +73,15 @@ open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
     /** 禮物排行榜更新幾次後仍零禮物就提醒。實測失效時 4 分鐘可累積 125 次 */
     private const val GIFT_EXPIRY_THRESHOLD = 20
 
+    /**
+     * sessionid -> 目前正在使用該登入態的主播名稱。
+     *
+     * 一個抖音帳號無法多處同時登入，兩位主播同時掛同一組 sessionid 會互踢，
+     * 結果雙方都收不到禮物。這裡在連線時登記、[clean] 時移除，只有「同時」
+     * 使用才會示警；先後輪流用同一個帳號是正常的，不該誤報。
+     */
+    private val sessionOwners = ConcurrentHashMap<String, String>()
+
     init {
       // load webmssdk js
       loadWebmssdk()
@@ -101,11 +110,12 @@ open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
 
     val config: DouyinDownloadConfig = streamer.downloadConfig as DouyinDownloadConfig
 
+    // 只認這位主播自己的設定：一個抖音帳號無法多處同時登入，共用會互踢
     var cookies = resolveDouyinCookiesRaw(
       streamerCookies = config.cookies,
-      globalCookies = app.config.douyinConfig.cookies,
-      cookiesFile = app.config.douyinConfig.cookiesFile,
+      streamerCookiesFile = config.cookiesFile,
     )
+    val loggedIn = cookies.isNotEmpty()
 
     try {
       cookies = populateDouyinCookieMissedParams(cookies, app.client)
@@ -114,11 +124,19 @@ open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
       return false
     }
 
-    if (!cookieHeaderHasSessionId(cookies)) {
-      logger.warn(
-        "{} Douyin cookies have no sessionid; WebcastGiftMessage may be missing. Set douyinConfig.cookiesFile or DOUYIN_COOKIES_FILE.",
-        webRid,
+    when {
+      // 沒設定就是刻意不登入，不是錯誤：聊天／進場／點讚照收，只有禮物收不到
+      !loggedIn -> logger.info(
+        "{} 未設定此主播的抖音 Cookie，以匿名連線錄製（收不到禮物）",
+        streamer.name,
       )
+
+      !cookieHeaderHasSessionId(cookies) -> logger.warn(
+        "{} 此主播的 Cookie 沒有 sessionid，禮物仍然收不到。請貼上含 sessionid 的完整 Cookie。",
+        streamer.name,
+      )
+
+      else -> registerSession(streamer.name, cookies)
     }
 
     if (idStr.isEmpty()) {
@@ -421,6 +439,35 @@ open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
    * 只是警告不是錯誤——冷門房間仍可能兩者皆低，所以措辭保留餘地，且整場只提醒一次。
    */
   /** 目前是否研判登入態可能已過期：排行榜持續更新卻一則禮物都沒有 */
+  /** 目前這條連線佔用的 sessionid，[clean] 時用來歸還登記 */
+  private var ownedSessionId: String? = null
+
+  /**
+   * 登記本主播佔用的登入態；若同一組 sessionid 已被別的主播佔著就示警。
+   */
+  internal fun registerSession(streamerName: String, cookies: String) {
+    val sid = douyinSessionId(cookies) ?: return
+    val owner = sessionOwners.putIfAbsent(sid, streamerName)
+    if (owner == null || owner == streamerName) {
+      ownedSessionId = sid
+      return
+    }
+    logger.warn(
+      "{} 與 {} 正在共用同一個抖音帳號。一個帳號無法多處同時登入，併發錄製會互相踢掉，" +
+        "可能導致兩邊的禮物都收不到。請改用不同帳號的 Cookie，或只讓其中一位登入。",
+      streamerName,
+      owner,
+    )
+  }
+
+  override fun clean() {
+    ownedSessionId?.let { sid ->
+      sessionOwners.remove(sid)
+      ownedSessionId = null
+    }
+    super.clean()
+  }
+
   internal fun giftExpirySuspected(): Boolean =
     giftSeen.get() == 0 && giftSortSeen.get() >= GIFT_EXPIRY_THRESHOLD
 
@@ -440,7 +487,7 @@ open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
     ) {
       logger.warn(
         "{} 禮物排行榜已更新 {} 次卻收不到任何禮物訊息，抖音登入 Cookie 可能已過期。" +
-          "請重新匯出含 sessionid 的 Cookie（douyinConfig.cookies / cookiesFile / DOUYIN_COOKIES_FILE）。",
+          "請為此主播重新匯出含 sessionid 的 Cookie。",
         idStr,
         giftSortSeen.get(),
       )

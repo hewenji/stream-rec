@@ -51,18 +51,17 @@ fun <T : DownloadConfig> T.fillDownloadConfig(
 ): T {
   val streamerConfig = this
 
+  // 抖音刻意不吃全域 cookies：一個帳號無法多處同時登入，全域後備會讓每位主播
+  // 都套上同一組 sessionid，併發錄製時互踢。其他平台維持原本的全域後備行為。
+  val globalCookies =
+    if (platform == DOUYIN) "" else platform.globalConfig(appConfig).cookies.orEmpty()
   val baseCookies = templateConfig?.cookies.orEmpty()
-    .ifEmpty {
-      streamerConfig.cookies.orEmpty()
-        .ifEmpty { platform.globalConfig(appConfig).cookies.orEmpty() }
-    }
+    .ifEmpty { streamerConfig.cookies.orEmpty().ifEmpty { globalCookies } }
   val newCookies = when {
     baseCookies.isNotEmpty() -> baseCookies
     platform == DOUYIN -> resolveDouyinCookiesRaw(
       streamerCookies = null,
-      globalCookies = null,
-      cookiesFile = (streamerConfig as DouyinConfigDTO).cookiesFile
-        ?: appConfig.douyinConfig.cookiesFile,
+      streamerCookiesFile = (streamerConfig as DouyinConfigDTO).cookiesFile,
     ).ifEmpty { null }
 
     else -> null
