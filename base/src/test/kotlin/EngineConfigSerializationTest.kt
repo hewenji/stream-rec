@@ -33,11 +33,12 @@ class EngineConfigSerializationTest : FunSpec({
     val deserialized = json.decodeFromString<EngineConfig>(serialized)
 
     deserialized shouldBe config
+    // Json 預設 encodeDefaults = false，欄位值等於宣告的預設值就不會輸出——
+    // 跟下面 KotlinConfig 預設值測試遵守的是同一套規則。這裡原本寫死成兩個
+    // 欄位都會輸出，是測試本身的期望值寫錯，不是序列化邏輯的問題。
     serialized shouldBe """
             {
-                "type": "streamlink",
-                "useBuiltInSegmenter": false,
-                "exitDownloadOnError": false
+                "type": "streamlink"
             }
         """.trimIndent()
   }
@@ -66,11 +67,10 @@ class EngineConfigSerializationTest : FunSpec({
     val deserialized = json.decodeFromString<EngineConfig>(serialized)
 
     deserialized shouldBe config
+    // 同上：預設值欄位在 encodeDefaults = false 之下不會輸出。
     serialized shouldBe """
             {
-                "type": "ffmpeg",
-                "useBuiltInSegmenter": false,
-                "exitDownloadOnError": false
+                "type": "ffmpeg"
             }
         """.trimIndent()
   }

@@ -28,7 +28,24 @@ import github.hua0512.utils.replacePlaceholders
 import github.hua0512.utils.substringBeforePlaceholders
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.equals.shouldBeEqual
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.number
+import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Instant
+
+/**
+ * replacePlaceholders() 本身就是用 TimeZone.currentSystemDefault() 把 Instant
+ * 換算成本地時間（這是故意的：使用者要的是錄影機器當地時間的檔名），所以
+ * 測試不能把某一台機器當時換算出來的本地時間字串寫死當期望值——換一個時區
+ * 跑就會炸。這裡用同一個時區換算方式產生期望值，兩邊用的是同一套換算規則，
+ * 仍然能抓出 replacePlaceholders() 本身格式化錯誤（補零、欄位對錯位置等）。
+ */
+private fun Instant.toFileNameTimeString(): String {
+  val dt = this.toLocalDateTime(TimeZone.currentSystemDefault())
+  return "%04d-%02d-%02d %02d-%02d-%02d".format(
+    dt.year, dt.month.number, dt.day, dt.hour, dt.minute, dt.second
+  )
+}
 
 /*
  * MIT License
@@ -69,7 +86,7 @@ class StringTest : FunSpec({
 
     val formatted = fileFormat.replacePlaceholders(streamer, title, platform, instant)
 
-    formatted shouldBeEqual "雪乃荔荔枝 - 新人第一天开播 - huya - 2024-02-20 21-41-52"
+    formatted shouldBeEqual "雪乃荔荔枝 - 新人第一天开播 - huya - ${instant.toFileNameTimeString()}"
   }
 
   test("testPlaceholderReplaceWithoutTime") {
@@ -95,7 +112,7 @@ class StringTest : FunSpec({
 
     val formatted = fileFormat.replacePlaceholders(streamer, title, platform, instant)
 
-    formatted shouldBeEqual " -  -  - 2024-02-20 21-41-52"
+    formatted shouldBeEqual " -  -  - ${instant.toFileNameTimeString()}"
   }
 
   test("testPlaceholderReplaceWithoutPlatform") {
