@@ -220,16 +220,33 @@ fun buildFFprobeCmd(
 }
 
 
+/**
+ * ffmpeg 遇到上游連線被中斷時，常見會印出這一行（demuxer 讀輸入讀到一半
+ * 噴 I/O error）。這種情況下 ffmpeg 多半仍以 exit code 0 收尾——已經寫出
+ * 的部分會被當成「正常結束」，但實際上是被腰斬的，不是到達 -fs/-t 上限或
+ * 收到停止訊號的正常結束。呼叫端要用這個信號決定「這段收檔後要不要重新
+ * 要一個新的直播網址」，而不是沿用同一個（可能已經失效的）網址立刻重連。
+ *
+ * 不拿「Stream ends prematurely」當偵測依據：直播 flv 宣告的長度本來就是
+ * unknown（一個超大數字），幾乎每次收尾都會印這行警告，包含正常停止錄影，
+ * 拿來當偵測依據會誤判成中斷。
+ */
+internal const val STREAM_INTERRUPTION_MARKER = "Error during demuxing"
+
 internal fun processFFmpegOutputLine(
   line: String,
   streamer: String,
   lastSize: Long,
   onSegmentStarted: (String) -> Unit,
+  onStreamInterrupted: () -> Unit = {},
   onDownloadProgress: (Long, Long, String) -> Unit,
 ) {
   when {
     !line.startsWith("size=") && !line.startsWith("frame=") -> {
       FFmpegDownloadEngine.logger.info("$streamer - $line")
+      if (line.contains(STREAM_INTERRUPTION_MARKER)) {
+        onStreamInterrupted()
+      }
       // handle opening segment for writing
       if (line.startsWith("[segment @") && line.contains("Opening")) {
         // [segment @ 000001c2e7450a40] Opening '2024-05-05_22-37-27.mp4' for writing

@@ -69,6 +69,11 @@ open class FFmpegDownloadEngine(override val logger: Logger = Companion.logger) 
   protected var lastOpeningFile: String? = null
   protected var lastOpeningFileTime: Long = 0
   protected var lastOpeningSize = 0L
+
+  // 這次 ffmpeg 執行過程中有沒有偵測到上游連線被中斷（見 FFmpeg.kt 的
+  // STREAM_INTERRUPTION_MARKER）。只代表「這一次 ffmpeg 進程」的狀態，
+  // 每次呼叫 start() 都要重設，不會跨進程殘留。
+  protected var streamInterrupted = false
   protected lateinit var outputFolder: Path
   protected lateinit var outputFileName: String
 
@@ -94,6 +99,7 @@ open class FFmpegDownloadEngine(override val logger: Logger = Companion.logger) 
 
   override suspend fun start() = coroutineScope {
     val startTime = Clock.System.now()
+    streamInterrupted = false
     initPath(startTime)
     // ffmpeg running commands
     val cmds = buildFFMpegCmd(
@@ -172,7 +178,8 @@ open class FFmpegDownloadEngine(override val logger: Logger = Companion.logger) 
         lastSize = lastOpeningSize,
         onSegmentStarted = { name ->
           processSegment(outputFolder, name)
-        }
+        },
+        onStreamInterrupted = { streamInterrupted = true }
       ) { size, diff, bitrate ->
         handleDownloadProgress(bitrate, size, diff)
       }
@@ -218,10 +225,32 @@ open class FFmpegDownloadEngine(override val logger: Logger = Companion.logger) 
       return
     }
     val file = outputFolder.resolve(lastOpeningFile!!)
-    if (exitCode != 0) {
+    val fileExists = file.exists()
+
+    if (streamInterrupted && fileExists) {
+      // ffmpeg 在上游連線被切斷時常常仍以「看起來正常」的方式收尾（見
+      // FFmpeg.kt 裡 STREAM_INTERRUPTION_MARKER 的說明），但沿用同一個網址
+      // 立刻重連幾乎必定失敗（像抖音這種簽章網址斷線後就失效）。這裡照樣把
+      // 已經寫出的部分收檔（內容仍然有效），但額外回報一次錯誤，讓上層走
+      // 既有的重試機制重新要一個新的直播網址，而不是拿舊網址硬重試。
+      warn(
+        "ffmpeg exited (code {}) after an upstream stream interruption; finalizing this part but " +
+            "reporting it as an error so the caller re-fetches a fresh stream URL", exitCode
+      )
+      // onDownloaded() 內部會把檔案從 PART_ 前綴改名成正式檔名，之後任何人再用
+      // 舊的 file.pathString 都找不到檔案了。onDownloadError() 的 filePath 得用
+      // 改名後的路徑，否則 PlatformDownloader 會誤判「影片檔不存在」而把這段
+      // 的彈幕 XML 也刪掉——影片明明是好的，不該連累彈幕。
+      val finalPath = file.parent.resolve(file.name.removePrefix(PART_PREFIX)).pathString
+      onDownloaded(FileInfo(file.pathString, 0, lastOpeningFileTime, Clock.System.now().epochSeconds))
+      onDownloadError(
+        finalPath,
+        DownloadErrorException("upstream stream interrupted (ffmpeg exit code: $exitCode)")
+      )
+    } else if (exitCode != 0) {
       error("ffmpeg download failed, exit code: $exitCode")
       // check if the file exists
-      if (file.exists()) {
+      if (fileExists) {
         onDownloaded(FileInfo(file.pathString, 0, lastOpeningFileTime, Clock.System.now().epochSeconds))
         onDownloadFinished()
       } else {

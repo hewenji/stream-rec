@@ -55,6 +55,7 @@ class StreamlinkDownloadEngine(override val logger: Logger = StreamlinkDownloadE
 
   override suspend fun start() = coroutineScope {
     ensureHlsUrl()
+    streamInterrupted = false
     initPath(Clock.System.now())
     val streamlinkInputArgs =
       mutableListOf("--stream-segment-threads", "3", "--hls-playlist-reload-attempts", "1").apply {
@@ -155,7 +156,8 @@ class StreamlinkDownloadEngine(override val logger: Logger = StreamlinkDownloadE
         lastSize = lastOpeningSize,
         onSegmentStarted = { name ->
           processSegment(outputFolder, name)
-        }
+        },
+        onStreamInterrupted = { streamInterrupted = true }
       ) { size, diff, bitrate ->
         handleDownloadProgress(bitrate, size, diff)
       }
