@@ -89,7 +89,8 @@ fun loadDouyinAccounts(): DouyinAccountsResponse {
           name = name,
           outFile = outFile,
           cookiesFile = cookiesFile,
-          enabled = o["enabled"]?.jsonPrimitive?.booleanOrNull ?: true,
+          enabled = o["enabled"]?.jsonPrimitive?.content?.let { it.equals("true", true) } ?: true,
+          
           status = o["status"]?.jsonPrimitive?.content,
           note = o["note"]?.jsonPrimitive?.content,
           sidFingerprint = o["sidFingerprint"]?.jsonPrimitive?.content
