@@ -53,6 +53,7 @@ fun Application.configureRouting(
         filesRoute(streamDataRepo)
         extractorRoutes(extractorFactory, json)
         enginesRoute(engineConfigRepo)
+        douyinAccountsRoute()
       }
     }
 

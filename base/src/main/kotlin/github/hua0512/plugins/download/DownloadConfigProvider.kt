@@ -87,7 +87,8 @@ fun <T : DownloadConfig> T.fillDownloadConfig(
     DOUYIN -> DownloadConfig.DouyinDownloadConfig(
       quality = (streamerConfig as DouyinConfigDTO).quality ?: appConfig.douyinConfig.quality,
       sourceFormat = streamerConfig.sourceFormat ?: appConfig.douyinConfig.sourceFormat,
-      cookiesFile = streamerConfig.cookiesFile ?: appConfig.douyinConfig.cookiesFile,
+      // Per-streamer only: never inherit global cookiesFile (one account cannot be shared).
+      cookiesFile = streamerConfig.cookiesFile,
     )
 
     DOUYU -> DownloadConfig.DouyuDownloadConfig(

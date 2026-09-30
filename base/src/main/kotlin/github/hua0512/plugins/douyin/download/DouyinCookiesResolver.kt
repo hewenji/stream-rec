@@ -54,6 +54,31 @@ fun resolveDouyinCookiesRaw(
   return ""
 }
 
+/**
+ * 把 Cookie 檔重新讀進來時，補回先前已經產生過的非登入態參數。
+ *
+ * 為什麼不直接呼叫 `populateDouyinCookieMissedParams`：那支是 `suspend`（`ttwid`
+ * 要打一次 API），而重連的回呼 [github.hua0512.plugins.danmu.base.Danmu.onDanmuRetry]
+ * 不是 suspend，而且重連當下正在退避重試，最不該再多一次可能逾時的網路往返。
+ * 這些參數（ttwid / odin_tt / __ac_nonce / msToken）在同一場錄影裡沿用即可。
+ *
+ * 新檔案裡有的欄位一律優先，[generated] 只補缺。
+ */
+fun mergeDouyinCookies(fresh: String, generated: Map<String, String>): String {
+  val merged = LinkedHashMap<String, String>()
+  parseClientCookiesHeader(fresh).forEach { (k, v) -> merged[k] = v }
+  generated.forEach { (k, v) -> merged.putIfAbsent(k, v) }
+  return merged.entries.joinToString("; ") { "${it.key}=${it.value}" } + ";"
+}
+
+/**
+ * 取出 [full] 裡有、但 [raw] 裡沒有的欄位，也就是程式自己補上的那幾個參數。
+ */
+fun extractGeneratedCookieParams(raw: String, full: String): Map<String, String> {
+  val rawKeys = parseClientCookiesHeader(raw).keys
+  return parseClientCookiesHeader(full).filterKeys { it !in rawKeys }
+}
+
 /** 取出 Cookie 裡的 sessionid 值，用來判斷是否有登入態、以及是否與別的主播撞帳號 */
 fun douyinSessionId(cookies: String): String? {
   if (cookies.isBlank()) return null

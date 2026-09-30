@@ -56,6 +56,7 @@ import github.hua0512.utils.decompressGzip
 import github.hua0512.utils.withIOContext
 import io.ktor.http.*
 import io.ktor.websocket.*
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -102,6 +103,31 @@ open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
 
   private var userUniqueId: String? = null
 
+  // 以下幾個成員用 internal 而非 private：與 decodeOne 相同的理由，讓單元測試能直接
+  // 驗證 Cookie 熱重載，不必真的連上一個正在開播的房間。
+
+  /** 主播名稱，log 與 sessionOwners 登記用 */
+  internal var streamerName: String = ""
+
+  /**
+   * 這位主播的 Cookie 檔路徑；null 代表不支援熱重載
+   * （沒設定檔案，或主播直接貼了 cookies 字串——那個優先序更高，重讀檔案也蓋不過）。
+   */
+  internal var cookiesFilePath: String? = null
+
+  /** 上次載入 Cookie 檔時的 mtime。內容沒變時 dycookie 不會覆寫檔案，所以 mtime 就是可靠的判準 */
+  internal var cookiesFileMtime: Long = 0L
+
+  /** 初次補齊的 ttwid / odin_tt / __ac_nonce / msToken，重載時沿用，避免在非 suspend 的重試回呼裡連網 */
+  internal var generatedParams: Map<String, String> = emptyMap()
+
+  /**
+   * 要求主動斷線重連。由 [trackGiftHealth] 在「禮物疑似失效 **且** Cookie 檔已更新」時設起，
+   * 由 [decodeDanmu] 在收完當前這批訊息後關閉連線；關閉會讓 Danmu 的重試迴圈拋出
+   * IOException，走進退避重連，再由 [onDanmuRetry] 換上新的 Cookie。
+   */
+  internal val reconnectRequested = AtomicBoolean(false)
+
   internal var idStr = ""
 
   override suspend fun initDanmu(streamer: Streamer, startTime: Instant): Boolean {
@@ -110,12 +136,21 @@ open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
 
     val config: DouyinDownloadConfig = streamer.downloadConfig as DouyinDownloadConfig
 
+    streamerName = streamer.name
+
     // 只認這位主播自己的設定：一個抖音帳號無法多處同時登入，共用會互踢
     var cookies = resolveDouyinCookiesRaw(
       streamerCookies = config.cookies,
       streamerCookiesFile = config.cookiesFile,
     )
     val loggedIn = cookies.isNotEmpty()
+    val rawCookies = cookies
+
+    // 只有「從檔案讀」的來源才支援熱重載：主播設定裡直接貼的 cookies 字串優先序更高，
+    // 重讀檔案也蓋不過它，那種情況硬要熱重載只會製造「改了檔卻沒生效」的困惑。
+    cookiesFilePath = if (!config.cookies.isNullOrBlank()) null
+    else config.cookiesFile?.trim()?.takeIf { it.isNotEmpty() }
+    cookiesFileMtime = cookiesFilePath?.let { File(it).lastModified() } ?: 0L
 
     try {
       cookies = populateDouyinCookieMissedParams(cookies, app.client)
@@ -123,6 +158,7 @@ open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
       logger.error("{} Failed to populate douyin cookie missed params", webRid, e)
       return false
     }
+    generatedParams = extractGeneratedCookieParams(rawCookies, cookies)
 
     when {
       // 沒設定就是刻意不登入，不是錯誤：聊天／進場／點讚照收，只有禮物收不到
@@ -157,8 +193,50 @@ open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
   }
 
   override fun onDanmuRetry(retryCount: Int) {
+    // 重連是唯一能換掉 Cookie 的時機：headersMap 每次連線都會重新套用
+    // （見 Danmu.fillRequest），所以在這裡換就會生效，不必重啟整場錄製。
+    reloadCookiesIfChanged()
     // update signature
     updateSignature()
+  }
+
+  /**
+   * 若 Cookie 檔在上次讀取之後有更新，就重新載入並套進 [headersMap]。
+   *
+   * 以 mtime 當判準而不是「每次重連都重讀」：dycookie 內容沒變時不會覆寫檔案，
+   * 所以 mtime 沒動就代表沒有新東西可換，重讀只是白費工。
+   */
+  internal fun reloadCookiesIfChanged(): Boolean {
+    val path = cookiesFilePath ?: return false
+    val file = File(path)
+    if (!file.isFile) {
+      logger.warn("{} Cookie 檔不見了：{}", streamerName, path)
+      return false
+    }
+    val mtime = file.lastModified()
+    if (mtime == cookiesFileMtime) return false
+
+    val fresh = readDouyinCookiesFile(path)
+    if (fresh == null || !cookieHeaderHasSessionId(fresh)) {
+      // 記下 mtime，避免同一份壞檔案每次重連都重讀、重印一次警告
+      cookiesFileMtime = mtime
+      logger.warn("{} Cookie 檔已更新但沒有 sessionid，維持原本的登入態：{}", streamerName, path)
+      return false
+    }
+
+    val merged = mergeDouyinCookies(fresh, generatedParams)
+    headersMap[HttpHeaders.Cookie] = merged
+    cookiesFileMtime = mtime
+
+    // 換成另一組登入態時要把舊的登記歸還，否則 sessionOwners 會留著已經不用的 sessionid
+    ownedSessionId?.let { sessionOwners.remove(it) }
+    ownedSessionId = null
+    registerSession(streamerName, merged)
+
+    // 換了 Cookie 就重新觀察禮物健康度，否則舊的計數會讓判斷永遠停在「已失效」
+    resetGiftHealth()
+    logger.info("{} 已套用更新後的抖音 Cookie（{}）", streamerName, path)
+    return true
   }
 
   private fun updateSignature() {
@@ -214,7 +292,7 @@ open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
     }
     val msgList = payloadPackage.messagesListList
     // each frame may contain multiple messages
-    return msgList.mapNotNull { msg ->
+    val decoded = msgList.mapNotNull { msg ->
       logger.trace("msg: {}", msg)
       if (DouyinDanmuProbe.enabled) DouyinDanmuProbe.method(msg.method)
       trackGiftHealth(msg.method)
@@ -229,6 +307,16 @@ open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
         null
       }
     }
+
+    // 先把這批訊息解析完再斷線，不要為了重連而丟掉已經收到的彈幕
+    if (reconnectRequested.compareAndSet(true, false)) {
+      logger.warn("{} 偵測到禮物失效且 Cookie 檔已更新，主動斷線以套用新的登入態", streamerName)
+      runCatching {
+        session.close(CloseReason(CloseReason.Codes.NORMAL, "cookie updated"))
+      }.onFailure { logger.debug("關閉 ws session 失敗：{}", it.toString()) }
+    }
+
+    return decoded
   }
 
   // internal 而非 private：讓單元測試能用合成 protobuf 直接驗證各訊息類型的欄位對應，
@@ -481,17 +569,39 @@ open class DouyinDanmu(app: App) : Danmu(app, enablePing = false) {
       "WebcastGiftSortMessage" -> giftSortSeen.incrementAndGet()
       else -> return
     }
-    if (giftSeen.get() == 0 &&
-      giftSortSeen.get() >= GIFT_EXPIRY_THRESHOLD &&
-      giftExpiryWarned.compareAndSet(false, true)
-    ) {
-      logger.warn(
-        "{} 禮物排行榜已更新 {} 次卻收不到任何禮物訊息，抖音登入 Cookie 可能已過期。" +
-          "請為此主播重新匯出含 sessionid 的 Cookie。",
-        idStr,
-        giftSortSeen.get(),
-      )
+    if (giftSeen.get() == 0 && giftSortSeen.get() >= GIFT_EXPIRY_THRESHOLD) {
+      // 有新的 Cookie 可用才值得斷線重連。冷清的房間本來就整場零禮物，
+      // 若不看檔案有沒有更新就重連，那種房間會被反覆踢下線，
+      // 而 Danmu 的重試次數是有上限的，白白燒掉重試額度會讓真正的斷線救不回來。
+      if (cookiesFileChangedSinceLoad()) {
+        reconnectRequested.set(true)
+      }
+      if (giftExpiryWarned.compareAndSet(false, true)) {
+        logger.warn(
+          "{} 禮物排行榜已更新 {} 次卻收不到任何禮物訊息，抖音登入 Cookie 可能已過期。" +
+            "請為此主播重新匯出含 sessionid 的 Cookie。",
+          idStr,
+          giftSortSeen.get(),
+        )
+      }
     }
+  }
+
+  /** 目前實際要送出的 Cookie 標頭。headersMap 在基底類別是 protected，測試需要一個讀取點。 */
+  internal fun currentCookieHeader(): String? = headersMap[HttpHeaders.Cookie]
+
+  /** Cookie 檔在載入之後是否被改過。沒有設定檔案來源時一律回 false。 */
+  internal fun cookiesFileChangedSinceLoad(): Boolean {
+    val path = cookiesFilePath ?: return false
+    val file = File(path)
+    return file.isFile && file.lastModified() != cookiesFileMtime
+  }
+
+  /** 換過 Cookie 之後重新觀察禮物健康度，否則舊計數會讓判斷永遠停在「已失效」。 */
+  internal fun resetGiftHealth() {
+    giftSeen.set(0)
+    giftSortSeen.set(0)
+    giftExpiryWarned.set(false)
   }
 
   /**

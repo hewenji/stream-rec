@@ -52,6 +52,7 @@ class DouyinDownloadConfigProviderTest : FunSpec({
     )
 
     config.cookies shouldBe null
+    config.cookiesFile shouldBe null
   }
 
   test("主播自己的 cookies 字串優先於自己的 cookiesFile") {
