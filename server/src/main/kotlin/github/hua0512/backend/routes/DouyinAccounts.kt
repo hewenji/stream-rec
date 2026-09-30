@@ -166,6 +166,47 @@ fun Route.douyinAccountsRoute() {
       }
     }
 
+    get("/accounts/{name}/login") {
+      val name = call.parameters["name"]?.trim().orEmpty()
+      if (name.isEmpty()) {
+        return@get call.respond(HttpStatusCode.BadRequest, buildJsonObject {
+          put("ok", false)
+          put("error", "missing account name")
+        })
+      }
+      val base = bridgeUrl().trimEnd('/')
+      val url = "$base/login/${java.net.URLEncoder.encode(name, Charsets.UTF_8).replace("+", "%20")}"
+      try {
+        val client = HttpClient.newBuilder()
+          .connectTimeout(Duration.ofSeconds(5))
+          .build()
+        val request = HttpRequest.newBuilder()
+          .uri(URI.create(url))
+          .timeout(Duration.ofSeconds(15))
+          .GET()
+          .build()
+        val response = client.send(request, HttpResponse.BodyHandlers.ofString())
+        val status = HttpStatusCode.fromValue(response.statusCode())
+        val raw = response.body().orEmpty()
+        if (raw.isNotBlank() && raw.trimStart().startsWith("{")) {
+          call.respondText(raw, ContentType.Application.Json, status)
+        } else {
+          call.respond(status, buildJsonObject {
+            put("ok", status.isSuccess())
+            put("account", name)
+            put("message", raw.ifBlank { status.description })
+          })
+        }
+      } catch (e: Exception) {
+        logger.warn("Douyin login status bridge unreachable ({}): {}", url, e.toString())
+        call.respond(HttpStatusCode.BadGateway, buildJsonObject {
+          put("ok", false)
+          put("account", name)
+          put("error", "dycookie host bridge unreachable at $url")
+        })
+      }
+    }
+
     post("/accounts/{name}/login") {
       val name = call.parameters["name"]?.trim().orEmpty()
       if (name.isEmpty()) {
@@ -175,12 +216,28 @@ fun Route.douyinAccountsRoute() {
         })
       }
 
-      // Drain optional body; we only forward the account name.
-      runCatching { call.receiveText() }
+      // Optional body: { "create": true, "slug": "ascii-out-slug", "note": "..." }
+      val bodyText = runCatching { call.receiveText() }.getOrDefault("")
+      var create = false
+      var slug: String? = null
+      var note: String? = null
+      if (bodyText.isNotBlank()) {
+        runCatching {
+          val o = accountsJson.parseToJsonElement(bodyText).jsonObject
+          create = o["create"]?.jsonPrimitive?.content?.equals("true", ignoreCase = true) == true
+          slug = jsonStr(o, "slug", "outSlug", "out_slug")?.takeIf { it.isNotBlank() }
+          note = jsonStr(o, "note")?.takeIf { it.isNotBlank() }
+        }
+      }
 
       val base = bridgeUrl().trimEnd('/')
       val url = "$base/login"
-      val body = buildJsonObject { put("account", name) }.toString()
+      val body = buildJsonObject {
+        put("account", name)
+        if (create) put("create", true)
+        if (!slug.isNullOrBlank()) put("slug", slug)
+        if (!note.isNullOrBlank()) put("note", note)
+      }.toString()
 
       try {
         val client = HttpClient.newBuilder()
