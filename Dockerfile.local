@@ -1,0 +1,2 @@
+FROM streamrec/stream-rec:latest
+COPY stream-rec/build/libs/stream-rec.jar /app/app.jar
