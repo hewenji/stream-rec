@@ -37,6 +37,18 @@ private fun accountsFile(): File =
 private fun bridgeUrl(): String =
   System.getenv("DYCOOKIE_BRIDGE_URL") ?: "http://host.docker.internal:18765"
 
+private fun jsonStr(o: kotlinx.serialization.json.JsonObject, vararg keys: String): String? {
+  for (key in keys) {
+    val el = o[key] ?: continue
+    if (el is kotlinx.serialization.json.JsonNull) continue
+    val p = runCatching { el.jsonPrimitive }.getOrNull() ?: continue
+    if (!p.isString && p.content == "null") continue
+    return p.content
+  }
+  return null
+}
+
+
 @Serializable
 data class DouyinAccountDto(
   val name: String,
@@ -78,11 +90,9 @@ fun loadDouyinAccounts(): DouyinAccountsResponse {
       val arr = rootEl["accounts"]?.jsonArray ?: emptyList()
       val list = arr.mapNotNull { el ->
         val o = el.jsonObject
-        val name = o["name"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-        val outFile = o["outFile"]?.jsonPrimitive?.content
-          ?: o["out_file"]?.jsonPrimitive?.content
-        val cookiesFile = o["cookiesFile"]?.jsonPrimitive?.content
-          ?: o["cookies_file"]?.jsonPrimitive?.content
+        val name = jsonStr(o, "name")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        val outFile = jsonStr(o, "outFile", "out_file")
+        val cookiesFile = jsonStr(o, "cookiesFile", "cookies_file")
           ?: outFile?.let { "/opt/secrets/$it" }
           ?: return@mapNotNull null
         DouyinAccountDto(
@@ -91,12 +101,10 @@ fun loadDouyinAccounts(): DouyinAccountsResponse {
           cookiesFile = cookiesFile,
           enabled = o["enabled"]?.jsonPrimitive?.content?.let { it.equals("true", true) } ?: true,
           
-          status = o["status"]?.jsonPrimitive?.content,
-          note = o["note"]?.jsonPrimitive?.content,
-          sidFingerprint = o["sidFingerprint"]?.jsonPrimitive?.content
-            ?: o["sid_fingerprint"]?.jsonPrimitive?.content,
-          lastOkAt = o["lastOkAt"]?.jsonPrimitive?.content
-            ?: o["last_ok_at"]?.jsonPrimitive?.content,
+          status = jsonStr(o, "status"),
+          note = jsonStr(o, "note"),
+          sidFingerprint = jsonStr(o, "sidFingerprint", "sid_fingerprint"),
+          lastOkAt = jsonStr(o, "lastOkAt", "last_ok_at"),
           filePresent = File(cookiesFile).isFile,
         )
       }
